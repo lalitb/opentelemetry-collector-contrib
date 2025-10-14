@@ -24,8 +24,8 @@ receivers:
 
 processors:
   batch:
-    send_batch_size: 1024
-    timeout: 2s
+    send_batch_size: 10240     # 10K events
+    timeout: 5s
 
 exporters:
   azuregigwarm:
@@ -46,8 +46,8 @@ exporters:
     # Sending queue configuration (persistent queue with disk backup)
     sending_queue:
       enabled: true
-      num_consumers: 10      # Number of concurrent workers
-      queue_size: 5000       # Max number of batches in queue
+      num_consumers: 5       # Reduced workers to avoid overload
+      queue_size: 2000       # Reduced queue size
       storage: file_storage  # Persist to disk (prevents data loss on crashes)
 
     # Retry configuration (exponential backoff on export failures)
