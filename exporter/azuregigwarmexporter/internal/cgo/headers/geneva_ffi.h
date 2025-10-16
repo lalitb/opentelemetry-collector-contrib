@@ -16,6 +16,7 @@ typedef struct EncodedBatchesHandle EncodedBatchesHandle;
 // Authentication method constants
 #define GENEVA_AUTH_MANAGED_IDENTITY 0
 #define GENEVA_AUTH_CERTIFICATE 1
+#define GENEVA_AUTH_WORKLOAD_IDENTITY 2
 
 /* Configuration for certificate auth (valid only when auth_method == GENEVA_AUTH_CERTIFICATE) */
 typedef struct {
@@ -29,11 +30,17 @@ typedef struct {
                           e.g. "00000000-0000-0000-0000-000000000000" */
 } GenevaMSIAuthConfig;
 
+/* Configuration for Workload Identity auth (valid only when auth_method == GENEVA_AUTH_WORKLOAD_IDENTITY) */
+typedef struct {
+    const char* resource; /* Azure Monitor resource URI (e.g., "https://monitor.azure.com") */
+} GenevaWorkloadIdentityAuthConfig;
+
 /* Tagged union for auth-specific configuration.
    The active member is determined by 'auth_method' in GenevaConfig. */
 typedef union {
     GenevaMSIAuthConfig msi;    /* Valid when auth_method == GENEVA_AUTH_MANAGED_IDENTITY */
     GenevaCertAuthConfig cert;  /* Valid when auth_method == GENEVA_AUTH_CERTIFICATE */
+    GenevaWorkloadIdentityAuthConfig workload_identity; /* Valid when auth_method == GENEVA_AUTH_WORKLOAD_IDENTITY */
 } GenevaAuthConfig;
 
 /* Configuration structure for Geneva client (C-compatible, tagged union) */
@@ -44,7 +51,7 @@ typedef struct {
     const char* namespace_name;
     const char* region;
     uint32_t config_major_version;
-    int32_t auth_method; /* 0 = Managed Identity, 1 = Certificate */
+    int32_t auth_method; /* 0 = Managed Identity, 1 = Certificate, 2 = Workload Identity */
     const char* tenant;
     const char* role_name;
     const char* role_instance;

@@ -16,6 +16,7 @@ package cgo
 // Helpers to set union fields from Go (implemented in c_helpers.c)
 void geneva_set_msi_objid(GenevaConfig* cfg, const char* objid);
 void geneva_set_cert(GenevaConfig* cfg, const char* path, const char* password);
+void geneva_set_workload_identity(GenevaConfig* cfg, const char* resource);
 */
 import "C"
 import (
@@ -38,12 +39,13 @@ type GenevaConfig struct {
 	Namespace          string
 	Region             string
 	ConfigMajorVersion uint32
-	AuthMethod         int32 // 0 = MSI, 1 = Certificate
+	AuthMethod         int32 // 0 = MSI, 1 = Certificate, 2 = WorkloadIdentity
 	Tenant             string
 	RoleName           string
 	RoleInstance       string
 	CertPath           string // Only used when AuthMethod == 1
 	CertPassword       string // Only used when AuthMethod == 1
+	WorkloadIdentityResource string // Only used when AuthMethod == 2
 }
 
 // GenevaError represents the error codes from the Rust FFI
@@ -125,12 +127,17 @@ func NewGenevaClient(config GenevaConfig) (*GenevaClient, error) {
 
 	var cCertPath *C.char
 	var cCertPassword *C.char
+    var cWorkloadIdentityResource *C.char
+
 	if config.AuthMethod == 1 { // Certificate auth
 		cCertPath = C.CString(config.CertPath)
 		defer C.free(unsafe.Pointer(cCertPath))
 
 		cCertPassword = C.CString(config.CertPassword)
 		defer C.free(unsafe.Pointer(cCertPassword))
+	} else if config.AuthMethod == 2 { // Workload Identity auth
+		cWorkloadIdentityResource = C.CString(config.WorkloadIdentityResource)
+		defer C.free(unsafe.Pointer(cWorkloadIdentityResource))
 	}
 
 	// Create C config struct
@@ -150,8 +157,10 @@ func NewGenevaClient(config GenevaConfig) (*GenevaClient, error) {
 	// Set auth-specific fields in tagged union
 	if config.AuthMethod == 1 {
 		C.geneva_set_cert(&cConfig, cCertPath, cCertPassword)
+	} else if config.AuthMethod == 2 {
+		C.geneva_set_workload_identity(&cConfig, cWorkloadIdentityResource)
 	} else {
-		C.geneva_set_msi_objid(&cConfig, (*C.char)(nil))
+		C.geneva_set_msi_objid(&cConfig, (*C.char)(nil)) // Use default MSI
 	}
 
 	// Call Rust FFI to create client
@@ -293,11 +302,13 @@ func (c *GenevaClient) UploadBatch(b *EncodedBatches, idx int) error {
 	)
 	if res != C.GENEVA_SUCCESS {
 		errMsg := C.GoString((*C.char)(unsafe.Pointer(&errBuf[0])))
+		log.Printf("DEBUG: Upload failed with error message: %s", errMsg)
 		if errMsg != "" {
 			return fmt.Errorf("geneva upload failed: %s", errMsg)
 		}
 		return mapGenevaError(res)
 	}
+    //log.Printf("DEBUG: Upload successful for batch %d", idx)
 	return nil
 }
 

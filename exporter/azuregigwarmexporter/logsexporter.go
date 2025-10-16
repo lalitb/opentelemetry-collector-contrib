@@ -57,6 +57,10 @@ func newLogsExporter(_ context.Context, set exporter.Settings, cfg *Config) (*lo
 		cgoCfg.CertPath = cfg.CertPath
 		cgoCfg.CertPassword = cfg.CertPassword
 	}
+    // Add workload identity resource if needed
+    if cfg.AuthMethod == WorkloadIdentity {
+        cgoCfg.WorkloadIdentityResource = cfg.WorkloadIdentityResource
+    }
 
 	client, err := cgogeneva.NewGenevaClient(cgoCfg)
 	if err != nil {
