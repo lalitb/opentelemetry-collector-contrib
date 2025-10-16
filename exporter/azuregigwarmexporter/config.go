@@ -32,6 +32,8 @@ const (
 	MSI AuthMethod = iota
 	// Certificate uses certificate-based authentication
 	Certificate
+	// WorkloadIdentity uses Workload Identity authentication
+	WorkloadIdentity
 )
 
 // String returns the string representation of AuthMethod
@@ -41,6 +43,8 @@ func (a AuthMethod) String() string {
 		return "msi"
 	case Certificate:
 		return "certificate"
+	case WorkloadIdentity:
+		return "workload_identity"
 	default:
 		return "unknown"
 	}
@@ -65,6 +69,9 @@ type Config struct {
 	// Certificate auth parameters (optional; required only when AuthMethod == Certificate)
 	CertPath     string `mapstructure:"cert_path"`
 	CertPassword string `mapstructure:"cert_password"`
+
+	// Workload Identity auth parameters (optional; required only when AuthMethod == WorkloadIdentity)
+	WorkloadIdentityResource string `mapstructure:"workload_identity_resource"`
 
 	// QueueConfig configures the sending queue for the exporter
 	QueueConfig exporterhelper.QueueBatchConfig `mapstructure:"sending_queue"`
@@ -157,14 +164,19 @@ func (cfg *Config) Validate() error {
 	if cfg.RoleInstance == "" {
 		return errors.New(`requires a non-empty "role_instance"`)
 	}
-	if cfg.AuthMethod != MSI && cfg.AuthMethod != Certificate {
-		return fmt.Errorf(`invalid auth_method: %d (must be 0 for MSI or 1 for Certificate)`, cfg.AuthMethod)
+	if cfg.AuthMethod != MSI && cfg.AuthMethod != Certificate && cfg.AuthMethod != WorkloadIdentity {
+		return fmt.Errorf(`invalid auth_method: %d (must be 0 for MSI, 1 for Certificate, or 2 for WorkloadIdentity)`, cfg.AuthMethod)
 	}
 	if cfg.AuthMethod == Certificate {
 		if cfg.CertPath == "" {
 			return errors.New(`requires a non-empty "cert_path" when auth_method == certificate`)
 		}
 		// cert_password can be empty if the cert is not password protected, so no hard check here.
+	}
+	if cfg.AuthMethod == WorkloadIdentity {
+		if cfg.WorkloadIdentityResource == "" {
+			return errors.New(`requires a non-empty "workload_identity_resource" when auth_method == workload_identity`)
+		}
 	}
 	return nil
 }

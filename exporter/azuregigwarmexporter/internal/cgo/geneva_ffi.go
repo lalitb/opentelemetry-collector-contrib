@@ -14,7 +14,6 @@ package cgo
 #include <stdlib.h>
 
 // Helpers to set union fields from Go (implemented in c_helpers.c)
-void geneva_set_msi_objid(GenevaConfig* cfg, const char* objid);
 void geneva_set_cert(GenevaConfig* cfg, const char* path, const char* password);
 void geneva_set_workload_identity(GenevaConfig* cfg, const char* resource);
 */
@@ -22,6 +21,7 @@ import "C"
 import (
 	"errors"
 	"fmt"
+        "log"
 	"runtime"
 	"unsafe"
 )
@@ -148,25 +148,37 @@ func NewGenevaClient(config GenevaConfig) (*GenevaClient, error) {
 		namespace_name:       cNamespace,
 		region:               cRegion,
 		config_major_version: C.uint32_t(config.ConfigMajorVersion),
-		auth_method:          C.int32_t(config.AuthMethod),
+		auth_method:          C.uint32_t(config.AuthMethod),
 		tenant:               cTenant,
 		role_name:            cRoleName,
 		role_instance:        cRoleInstance,
+		msi_resource:         nil, // Optional MSI resource, not currently used
 	}
 
 	// Set auth-specific fields in tagged union
+	// Note: For auth_method == 0 (System MSI), the union is not accessed
 	if config.AuthMethod == 1 {
 		C.geneva_set_cert(&cConfig, cCertPath, cCertPassword)
 	} else if config.AuthMethod == 2 {
 		C.geneva_set_workload_identity(&cConfig, cWorkloadIdentityResource)
-	} else {
-		C.geneva_set_msi_objid(&cConfig, (*C.char)(nil)) // Use default MSI
 	}
+	// For auth_method 0 (System MSI), no union field needs to be set
 
-	// Call Rust FFI to create client
+	// Call Rust FFI to create client with error message buffer
 	var handle *C.GenevaClientHandle
-	rc := C.geneva_client_new(&cConfig, &handle)
+	errBuf := make([]byte, 1024) // Buffer for detailed error messages
+	rc := C.geneva_client_new(
+		&cConfig,
+		&handle,
+		(*C.char)(unsafe.Pointer(&errBuf[0])),
+		C.size_t(len(errBuf)),
+	)
 	if rc != C.GENEVA_SUCCESS {
+		// Try to extract detailed error message from buffer
+		errMsg := C.GoString((*C.char)(unsafe.Pointer(&errBuf[0])))
+		if errMsg != "" {
+			return nil, fmt.Errorf("%w: %s", mapGenevaError(rc), errMsg)
+		}
 		return nil, mapGenevaError(rc)
 	}
 
@@ -188,19 +200,26 @@ func (c *GenevaClient) UploadLogsSync(data []byte) error {
 	}
 
 	var batches *C.EncodedBatchesHandle
+	errBuf := make([]byte, 1024) // Buffer for error messages
 	rc := C.geneva_encode_and_compress_logs(
 		c.handle,
 		(*C.uint8_t)(unsafe.Pointer(&data[0])),
 		C.size_t(len(data)),
 		&batches,
+		(*C.char)(unsafe.Pointer(&errBuf[0])),
+		C.size_t(len(errBuf)),
 	)
 	if rc != C.GENEVA_SUCCESS {
+		errMsg := C.GoString((*C.char)(unsafe.Pointer(&errBuf[0])))
+		if errMsg != "" {
+			return fmt.Errorf("%w: %s", mapGenevaError(rc), errMsg)
+		}
 		return mapGenevaError(rc)
 	}
 	defer C.geneva_batches_free(batches)
 
 	n := int(C.geneva_batches_len(batches))
-	errBuf := make([]byte, 1024) // Buffer for error messages
+	// Reuse the errBuf for upload errors
 	for i := range n {
 		res := C.geneva_upload_batch_sync(
 			c.handle,
@@ -251,13 +270,20 @@ func (c *GenevaClient) EncodeAndCompressLogs(data []byte) (*EncodedBatches, erro
 		return nil, errors.New("empty log data")
 	}
 	var batches *C.EncodedBatchesHandle
+	errBuf := make([]byte, 1024)
 	rc := C.geneva_encode_and_compress_logs(
 		c.handle,
 		(*C.uint8_t)(unsafe.Pointer(&data[0])),
 		C.size_t(len(data)),
 		&batches,
+		(*C.char)(unsafe.Pointer(&errBuf[0])),
+		C.size_t(len(errBuf)),
 	)
 	if rc != C.GENEVA_SUCCESS {
+		errMsg := C.GoString((*C.char)(unsafe.Pointer(&errBuf[0])))
+		if errMsg != "" {
+			return nil, fmt.Errorf("%w: %s", mapGenevaError(rc), errMsg)
+		}
 		return nil, mapGenevaError(rc)
 	}
 	return &EncodedBatches{handle: batches}, nil
@@ -272,13 +298,20 @@ func (c *GenevaClient) EncodeAndCompressSpans(data []byte) (*EncodedBatches, err
 		return nil, errors.New("empty span data")
 	}
 	var batches *C.EncodedBatchesHandle
+	errBuf := make([]byte, 1024)
 	rc := C.geneva_encode_and_compress_spans(
 		c.handle,
 		(*C.uint8_t)(unsafe.Pointer(&data[0])),
 		C.size_t(len(data)),
 		&batches,
+		(*C.char)(unsafe.Pointer(&errBuf[0])),
+		C.size_t(len(errBuf)),
 	)
 	if rc != C.GENEVA_SUCCESS {
+		errMsg := C.GoString((*C.char)(unsafe.Pointer(&errBuf[0])))
+		if errMsg != "" {
+			return nil, fmt.Errorf("%w: %s", mapGenevaError(rc), errMsg)
+		}
 		return nil, mapGenevaError(rc)
 	}
 	return &EncodedBatches{handle: batches}, nil
